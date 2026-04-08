@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """
 Baseline Inference Script for Hospital Resource Management
-Updated to use the required LLM Proxy for evaluation compliance.
-Emits structured [START], [STEP], [END] logs for evaluation.
+Updated to resolve API_BASE_URL collision and LLM Proxy compliance.
 """
 
 import json
@@ -16,28 +15,40 @@ from openai import OpenAI
 
 # ===================== CONFIGURATION =====================
 
-# Defaults ONLY for API_BASE_URL and MODEL_NAME
-API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000")
-# Unified model name for free serverless inference
+# 1. Internal Environment URL (Your Hospital Server)
+# Renamed from API_BASE_URL to avoid collision with the Judge's LLM Proxy
+ENV_URL = os.getenv("SERVER_URL", "http://localhost:8000")
+
+# 2. LLM Model Configuration
 MODEL_NAME = os.getenv("MODEL_NAME", "meta-llama/Llama-3.3-70B-Instruct")
-HF_TOKEN = os.getenv("HF_TOKEN")                         # Required Secret
-LOCAL_IMAGE_NAME = os.getenv("LOCAL_IMAGE_NAME")         
+HF_TOKEN = os.getenv("HF_TOKEN")                         
 
 TASK_NAME = "hospital_resource_management"
 BENCHMARK = "HospitalResourceManagement"
 MAX_STEPS = 30
 SUCCESS_SCORE_THRESHOLD = 0.5
 
-# CORRECTED: Uses the evaluator's proxy variables while keeping HF as a local fallback
-client = OpenAI(
-    base_url=os.getenv("API_BASE_URL", "https://router.huggingface.co/v1"),
-    api_key=os.getenv("API_KEY", os.getenv("HF_TOKEN", "hf_placeholder"))
-)
+# 3. LLM Proxy Configuration (MANDATORY for Phase 2)
+# We strictly prioritize the Judge's injected variables.
+proxy_url = os.getenv("API_BASE_URL")
+proxy_key = os.getenv("API_KEY")
+
+if proxy_url and "huggingface.co" not in proxy_url:
+    # Use the Judge's LiteLLM Proxy
+    client = OpenAI(
+        base_url=proxy_url,
+        api_key=proxy_key
+    )
+else:
+    # Fallback for local testing or normal Space runs
+    client = OpenAI(
+        base_url="https://router.huggingface.co/v1",
+        api_key=HF_TOKEN if HF_TOKEN else "hf_placeholder"
+    )
 
 # ===================== REQUIRED LOG FORMAT =====================
 
 def log_start(task: str, env: str, model: str):
-    """Emit [START] log — exact format required by evaluator."""
     payload = {
         "type": "START",
         "task": task,
@@ -50,7 +61,6 @@ def log_start(task: str, env: str, model: str):
 
 
 def log_step(step: int, action: Any, reward: float, done: bool, error: Any = None):
-    """Emit [STEP] log — exact format required by evaluator."""
     payload = {
         "type": "STEP",
         "step": step,
@@ -65,7 +75,6 @@ def log_step(step: int, action: Any, reward: float, done: bool, error: Any = Non
 
 
 def log_end(success: bool, steps: int, score: float, rewards: List[float]):
-    """Emit [END] log — exact format required by evaluator."""
     payload = {
         "type": "END",
         "success": success,
@@ -81,25 +90,26 @@ def log_end(success: bool, steps: int, score: float, rewards: List[float]):
 # ===================== ENVIRONMENT API =====================
 
 def reset_environment(task: str) -> Dict[str, Any]:
-    resp = requests.post(f"{API_BASE_URL}/reset", json={"task": task}, timeout=30)
+    # Using ENV_URL instead of API_BASE_URL to reach internal server
+    resp = requests.post(f"{ENV_URL}/reset", json={"task": task}, timeout=30)
     resp.raise_for_status()
     return resp.json()
 
 
 def step_environment(action: Dict[str, Any]) -> Dict[str, Any]:
-    resp = requests.post(f"{API_BASE_URL}/step", json={"action": action}, timeout=30)
+    resp = requests.post(f"{ENV_URL}/step", json={"action": action}, timeout=30)
     resp.raise_for_status()
     return resp.json()
 
 
 def get_state() -> Dict[str, Any]:
-    resp = requests.get(f"{API_BASE_URL}/state", timeout=30)
+    resp = requests.get(f"{ENV_URL}/state", timeout=30)
     resp.raise_for_status()
     return resp.json()
 
 
 def grade_task() -> Dict[str, Any]:
-    resp = requests.post(f"{API_BASE_URL}/grade", timeout=30)
+    resp = requests.post(f"{ENV_URL}/grade", timeout=30)
     resp.raise_for_status()
     return resp.json()
 
@@ -107,20 +117,16 @@ def grade_task() -> Dict[str, Any]:
 # ===================== AGENT =====================
 
 class HospitalAgent:
-    """Hospital operations agent optimized for Llama-3 instruction following."""
-
     def decide_action(self, state: Dict[str, Any], task_description: str) -> Dict[str, Any]:
         state_summary = self._summarize_state(state)
-
-        # Refined prompt for Llama-3 to ensure strict JSON output
         messages = [
             {
                 "role": "system", 
-                "content": "You are a hospital manager. Your task is to output exactly ONE JSON object representing an action. No conversation."
+                "content": "You are a hospital manager. Output exactly ONE JSON object representing an action. No conversation."
             },
             {
                 "role": "user", 
-                "content": f"STATE:\n{state_summary}\n\nTASK:\n{task_description}\n\nValid action types: assign_bed, allocate_staff, discharge_patient, transfer_patient, request_equipment, escalate_shortage, skip. Return ONE JSON action:"
+                "content": f"STATE:\n{state_summary}\n\nTASK:\n{task_description}\n\nReturn ONE JSON action:"
             }
         ]
 
@@ -129,17 +135,13 @@ class HospitalAgent:
                 model=MODEL_NAME,
                 max_tokens=100,
                 messages=messages,
-                temperature=0.0, # Greedy decoding for reliability
+                temperature=0.0,
             )
-
             text = response.choices[0].message.content.strip()
-
-            # Robust JSON boundary finding
             start = text.find('{')
             end = text.rfind('}') + 1
             if start != -1 and end != 0:
                 return json.loads(text[start:end])
-
             return {"type": "skip"}
         except Exception:
             return {"type": "skip"}
@@ -150,10 +152,8 @@ class HospitalAgent:
         icu = beds.get("icu", {})
         general = beds.get("general", {})
         pending = s.get("pending_patients", [])
-
         icu_free = [b['id'] for b in icu.get("details", []) if b.get("status") == "free"][:2]
         gen_free = [b['id'] for b in general.get("details", []) if b.get("status") == "free"][:2]
-
         return f"ICU Free: {icu_free} | Gen Free: {gen_free} | Pending: {len(pending)}"
 
 
@@ -177,7 +177,6 @@ def run_task(task: str) -> tuple:
 
         for step in range(1, MAX_STEPS + 1):
             action = agent.decide_action({"state": state}, task_desc)
-            
             reward = 0.0
             done = False
             error = None
@@ -193,7 +192,6 @@ def run_task(task: str) -> tuple:
             rewards.append(reward)
             steps_taken = step
             log_step(step=step, action=json.dumps(action), reward=reward, done=done, error=error)
-
             if done:
                 break
 
