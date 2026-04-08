@@ -1,0 +1,181 @@
+name: "HospitalResourceManagement"
+version: "1.0.0"
+description: "AI agent for managing hospital operations: bed allocation, staff management, equipment distribution, and patient flow in real-time under resource constraints."
+
+metadata:
+  author: "Ignitors Team"
+  domain: "Healthcare Operations"
+  complexity: "High"
+  real_world_relevance: "Very High"
+
+environment:
+  type: "hospital_operations"
+  max_steps: 50
+  action_space:
+    type: "structured"
+    actions:
+      - name: "assign_bed"
+        description: "Assign patient to available hospital bed"
+        required_fields:
+          - "patient_id"
+          - "bed_id"
+        optional_fields: []
+      - name: "allocate_staff"
+        description: "Allocate doctor or nurse to patient care"
+        required_fields:
+          - "staff_id"
+          - "patient_id"
+        optional_fields: []
+      - name: "discharge_patient"
+        description: "Discharge recovered patient, freeing bed"
+        required_fields:
+          - "patient_id"
+        optional_fields: []
+      - name: "transfer_patient"
+        description: "Transfer patient to different ward"
+        required_fields:
+          - "patient_id"
+          - "new_bed_id"
+        optional_fields: []
+      - name: "request_equipment"
+        description: "Request equipment (ventilator, monitor) for patient"
+        required_fields:
+          - "equipment_type"
+          - "patient_id"
+        optional_fields: []
+      - name: "escalate_shortage"
+        description: "Escalate resource shortage to higher authority"
+        required_fields:
+          - "shortage_type"
+          - "target"
+        optional_fields: []
+      - name: "skip"
+        description: "Skip this action (no-op)"
+        required_fields: []
+        optional_fields: []
+
+  observation_space:
+    type: "structured"
+    fields:
+      step: "Current step number"
+      time: "Simulation time"
+      beds:
+        icu:
+          total: "Total ICU beds"
+          occupied: "Occupied ICU beds"
+          details: "List of all ICU beds with status"
+        general:
+          total: "Total general ward beds"
+          occupied: "Occupied general ward beds"
+          details: "List of all general beds with status"
+        isolation:
+          total: "Total isolation beds"
+          occupied: "Occupied isolation beds"
+          details: "List of all isolation beds with status"
+        pediatric:
+          total: "Total pediatric beds"
+          occupied: "Occupied pediatric beds"
+          details: "List of all pediatric beds with status"
+      staff:
+        doctors: "List of available doctors with specialties and current load"
+        nurses: "List of available nurses with current load"
+      equipment: "List of equipment with status and location"
+      pending_patients: "Patients waiting for bed assignment"
+      admitted_patients: "Currently admitted patients with assigned beds"
+      escalations: "List of escalations made by system"
+
+  reward_function:
+    type: "composite"
+    components:
+      - name: "correct_bed_type"
+        weight: 0.2
+        description: "Reward for assigning patient to correct ward type (+0.25)"
+      - name: "priority_respect"
+        weight: 0.2
+        description: "Reward for respecting priority order, critical first (+0.15)"
+      - name: "resource_allocation"
+        weight: 0.2
+        description: "Reward for no resource conflicts/double-booking (+0.2)"
+      - name: "staff_ratio"
+        weight: 0.2
+        description: "Reward for maintaining proper staff-to-patient ratio (+0.2)"
+      - name: "efficiency"
+        weight: 0.2
+        description: "Reward for resolving situations within step limit (+0.1)"
+
+  penalties:
+    - value: -0.4
+      trigger: "Critical patient left unattended"
+    - value: -0.3
+      trigger: "Wrong unit assignment"
+    - value: -0.2
+      trigger: "Unnecessary resource waste"
+    - value: -0.5
+      trigger: "Patient death due to mismanagement"
+
+tasks:
+  - name: "easy"
+    difficulty: "Easy"
+    description: "Routine Allocation - 2-4 random patients arrive, beds available, dynamic arrivals possible"
+    max_steps: 20
+    objective: "Agent must assign correct ward based on condition, respect priority order"
+    grading_criteria:
+      - "Right bed type (+0.25 per patient)"
+      - "Priority order respected (+0.15)"
+      - "No resource conflicts"
+      - "Completed within step limit"
+
+  - name: "medium"
+    difficulty: "Medium"
+    description: "Resource Conflict - ICU 60-95% full, 1-3 critical patients arrive, dynamic events"
+    max_steps: 30
+    objective: "Agent must discharge stable ICU patient and reallocate safely"
+    grading_criteria:
+      - "Did agent free resources correctly? (+0.2)"
+      - "No unsafe discharge? (-0.4 if critical discharged)"
+      - "Critical patients allocated? (+0.2 each)"
+      - "Proper escalation? (+0.1)"
+
+  - name: "hard"
+    difficulty: "Hard"
+    description: "Mass Casualty Event - 10-20 patients, staff shortage, equipment failures, continuous arrivals"
+    max_steps: 40
+    objective: "Minimize critical patient wait time without unsafe actions"
+    grading_criteria:
+      - "Critical patient wait time minimized (+0.15 if <5 steps)"
+      - "Correct escalation (+0.15 per escalation)"
+      - "No resource double-booking (-0.2 if violated)"
+      - "Unsafe discharge avoidance (-0.4 if violated)"
+
+endpoints:
+  reset: "/reset"
+  step: "/step"
+  state: "/state"
+  grade: "/grade"
+  health: "/health"
+  tasks: "/tasks"
+
+server:
+  host: "0.0.0.0"
+  port: 8000
+  framework: "fastapi"
+
+docker:
+  image: "hospital-resource-management:latest"
+  port: 8000
+  build_context: "."
+
+validation:
+  required_files:
+    - "environment.py"
+    - "graders.py"
+    - "server.py"
+    - "inference.py"
+    - "Dockerfile"
+    - "requirements.txt"
+  must_pass:
+    - "spec_compliance"
+    - "docker_build"
+    - "endpoint_ping"
+    - "task_grading"
+    - "baseline_inference"
