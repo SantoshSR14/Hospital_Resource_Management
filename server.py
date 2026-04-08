@@ -160,7 +160,13 @@ async def health():
 async def root():
     return {"name": "Hospital Resource Management", "status": "active"}
 
-if __name__ == "__main__":
+# ===================== MAIN ENTRY POINT =====================
+
+def main():
+    """Main function to launch the server as required for multi-mode deployment."""
     import uvicorn
-    # Host 0.0.0.0 is mandatory for HF Spaces
+    # Host 0.0.0.0 and port 8000 are required for HF Spaces
     uvicorn.run(app, host="0.0.0.0", port=8000)
+
+if __name__ == "__main__":
+    main()
