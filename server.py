@@ -78,46 +78,41 @@ class TaskInfoResponse(BaseModel):
     task_descriptions: Dict[str, str]
 
 # ===================== ENDPOINTS =====================
-
 @app.post("/reset", response_model=ResetResponse)
-async def reset(request: ResetRequest = None):
+async def reset(request: Optional[ResetRequest] = None):
     """
-    Reset the environment. Handles empty bodies and invalid tasks for auto-evaluator compliance.
+    Reset the environment. Handles empty or malformed requests to ensure 
+    the automated Phase 1 checks pass.
     """
     global env, current_task_grader, current_task
     
-    # Fallback logic for robust reset handling
+    # Default to 'easy' if no task is specified or request is empty
     selected_task = "easy"
-    if request and request.task in TASKS:
+    if request and hasattr(request, 'task') and request.task in TASKS:
         selected_task = request.task
     
     try:
-        logger.info(f"Received reset request for task: {selected_task}")
+        logger.info(f"Resetting environment for task: {selected_task}")
         
-        # Re-initialize the environment
+        # Fresh initialization
         env = HospitalEnvironment()
         
-        # Setup grader for task
         grader_class = TASKS[selected_task]
         current_task_grader = grader_class(env)
         current_task = selected_task
         
-        # Setup task-specific scenario
         current_task_grader.setup()
-        
-        initial_state = env.state()
-        task_description = current_task_grader.get_task_description()
         
         return ResetResponse(
             status="success",
             task=selected_task,
-            initial_state=initial_state,
-            task_description=task_description,
+            initial_state=env.state(),
+            task_description=current_task_grader.get_task_description(),
         )
     
     except Exception as e:
-        logger.error(f"CRITICAL ERROR during reset: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
+        logger.error(f"Reset failed: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/step", response_model=StepResponse)
 async def step(request: StepRequest):
