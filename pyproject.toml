@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hospital-resource-management"
+version = "1.0.0"
+description = "OpenEnv hospital operations management environment"
+authors = [
+    { name = "Ignitors Team" }
+]
+dependencies = [
+    "fastapi>=0.104.1",
+    "uvicorn[standard]>=0.24.0",
+    "pydantic>=2.5.0",
+    "requests>=2.31.0",
+    "openai>=1.3.0",
+    "python-dotenv>=1.0.0",
+    "pyyaml>=6.0.1",
+    "httpx>=0.25.2"
+]
+
+[tool.setuptools]
+packages = ["."]
