@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Baseline Inference Script for Hospital Resource Management
-Updated to use the unified Hugging Face Router for free inference.
+Updated to use the required LLM Proxy for evaluation compliance.
 Emits structured [START], [STEP], [END] logs for evaluation.
 """
 
@@ -28,10 +28,10 @@ BENCHMARK = "HospitalResourceManagement"
 MAX_STEPS = 30
 SUCCESS_SCORE_THRESHOLD = 0.5
 
-# Configure client to use the unified Hugging Face router
+# CORRECTED: Uses the evaluator's proxy variables while keeping HF as a local fallback
 client = OpenAI(
-    base_url="https://router.huggingface.co/v1",
-    api_key=HF_TOKEN if HF_TOKEN else "hf_placeholder"
+    base_url=os.getenv("API_BASE_URL", "https://router.huggingface.co/v1"),
+    api_key=os.getenv("API_KEY", os.getenv("HF_TOKEN", "hf_placeholder"))
 )
 
 # ===================== REQUIRED LOG FORMAT =====================
