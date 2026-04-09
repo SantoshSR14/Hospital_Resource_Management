@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Baseline Inference Script for Hospital Resource Management
-Updated to resolve API_BASE_URL collision and LLM Proxy compliance.
+Updated to ensure task scores are strictly within (0, 1) range for validation.
 """
 
 import json
@@ -16,7 +16,6 @@ from openai import OpenAI
 # ===================== CONFIGURATION =====================
 
 # 1. Internal Environment URL (Your Hospital Server)
-# Renamed from API_BASE_URL to avoid collision with the Judge's LLM Proxy
 ENV_URL = os.getenv("SERVER_URL", "http://localhost:8000")
 
 # 2. LLM Model Configuration
@@ -29,18 +28,15 @@ MAX_STEPS = 30
 SUCCESS_SCORE_THRESHOLD = 0.5
 
 # 3. LLM Proxy Configuration (MANDATORY for Phase 2)
-# We strictly prioritize the Judge's injected variables.
 proxy_url = os.getenv("API_BASE_URL")
 proxy_key = os.getenv("API_KEY")
 
 if proxy_url and "huggingface.co" not in proxy_url:
-    # Use the Judge's LiteLLM Proxy
     client = OpenAI(
         base_url=proxy_url,
         api_key=proxy_key
     )
 else:
-    # Fallback for local testing or normal Space runs
     client = OpenAI(
         base_url="https://router.huggingface.co/v1",
         api_key=HF_TOKEN if HF_TOKEN else "hf_placeholder"
@@ -90,7 +86,6 @@ def log_end(success: bool, steps: int, score: float, rewards: List[float]):
 # ===================== ENVIRONMENT API =====================
 
 def reset_environment(task: str) -> Dict[str, Any]:
-    # Using ENV_URL instead of API_BASE_URL to reach internal server
     resp = requests.post(f"{ENV_URL}/reset", json={"task": task}, timeout=30)
     resp.raise_for_status()
     return resp.json()
@@ -195,12 +190,18 @@ def run_task(task: str) -> tuple:
             if done:
                 break
 
+        # CORRECTED SCORE BOUNDARY HANDLING
         grade_resp = grade_task()
-        score = min(max(float(grade_resp.get("score", 0.0)), 0.0), 1.0)
+        raw_score = float(grade_resp.get("score", 0.0))
+        
+        # Ensure score is strictly within (0, 1) range
+        score = max(0.01, min(0.99, raw_score))
         success = score >= SUCCESS_SCORE_THRESHOLD
 
     except Exception as e:
         print(f"Task Failed: {e}")
+        # Failure score must also be strictly > 0
+        score = 0.01
 
     log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
     return score, rewards
