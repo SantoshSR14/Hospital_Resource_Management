@@ -126,7 +126,7 @@ Max steps: {self.max_steps}
         if self.env.step_count > self.max_steps:
             score -= 0.1
 
-        final_score = max(0.0, min(1.0, score))
+        final_score = max(0.01, min(0.99, score))
         details["final_score"] = final_score
         details["assigned"] = len(assigned_patients)
         details["unassigned"] = len(unassigned_pending)
